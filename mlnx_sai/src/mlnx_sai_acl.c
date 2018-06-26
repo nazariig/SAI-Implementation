@@ -607,7 +607,6 @@ static sai_status_t create_rpc_server(_Inout_ int *s);
 static sai_status_t create_rpc_client(_Inout_ int *s, _Inout_ struct sockaddr_un *sv_sockaddr);
 static sai_status_t create_rpc_socket(_Inout_ int *s, _Inout_opt_ struct sockaddr_un *sockaddr, _In_ bool is_server);
 static sai_status_t mlnx_acl_rpc_call(_Inout_ acl_rpc_info_t *rpc_info);
-static sai_status_t mlnx_acl_cb_table_init(void);
 static sai_status_t mlnx_acl_lazy_init(void);
 static sai_status_t acl_psort_background_close(void);
 static sai_status_t mlnx_acl_rpc_thread_close(void);
@@ -2002,18 +2001,6 @@ sai_status_t mlnx_acl_deinit(void)
 #endif /* _WIN32 */
 
     SX_LOG_EXIT();
-    return status;
-}
-
-sai_status_t mlnx_acl_connect(void)
-{
-    sai_status_t status;
-
-    status = mlnx_acl_cb_table_init();
-    if (SAI_ERR(status)) {
-        return status;
-    }
-
     return status;
 }
 
@@ -11370,7 +11357,7 @@ static sai_status_t mlnx_acl_table_check_size_increase(_In_ uint32_t table_db_id
     return SAI_STATUS_SUCCESS;
 }
 
-static sai_status_t mlnx_acl_cb_table_init(void)
+sai_status_t mlnx_acl_cb_table_init(void)
 {
     sx_chip_types_t chip_type;
 
@@ -11407,11 +11394,6 @@ sai_status_t mlnx_acl_init(void)
     sai_acl_db->acl_settings_tbl->bg_stop                 = false;
     sai_acl_db->acl_settings_tbl->psort_thread_start_flag = false;
     sai_acl_db->acl_settings_tbl->rpc_thread_start_flag   = false;
-
-    status = mlnx_acl_cb_table_init();
-    if (SAI_ERR(status)) {
-        return status;
-    }
 
 #ifndef _WIN32
     pthread_condattr_t  cond_attr;
@@ -14712,6 +14694,7 @@ static bool mlnx_acl_table_bind_point_list_fits_group(_In_ uint32_t group_index,
 {
     sai_acl_bind_point_type_t *table_bind_point_types, *group_bind_point_types;
     uint32_t                   table_bind_point_type_count, group_bind_point_type_count, ii, jj;
+    char                       bind_point_type_str[LINE_LENGTH] = {0};;
 
     group_bind_point_type_count = sai_acl_db_group_ptr(group_index)->bind_point_types.count;
     group_bind_point_types      = sai_acl_db_group_ptr(group_index)->bind_point_types.types;
@@ -14726,8 +14709,9 @@ static bool mlnx_acl_table_bind_point_list_fits_group(_In_ uint32_t group_index,
         }
 
         if (jj == table_bind_point_type_count) {
-            SX_LOG_ERR("ACL Group's bind point type (%d) is not supported for ACL Table (%d)\n",
-                       group_bind_point_types[ii], table_index);
+            sai_serialize_acl_bind_point_type(bind_point_type_str, group_bind_point_types[ii]);
+            SX_LOG_ERR("ACL Group's bind point type (%s) is not supported for ACL Table (%d)\n",
+                       bind_point_type_str, table_index);
             return false;
         }
     }

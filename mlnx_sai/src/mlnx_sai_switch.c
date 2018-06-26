@@ -1161,7 +1161,7 @@ struct sx_pci_profile pci_profile_single_eth_spectrum2 = {
     },
     /* rdq_count */
     .rdq_count = {
-        33,
+        35,
         0,
         0,
         0,
@@ -1206,7 +1206,8 @@ struct sx_pci_profile pci_profile_single_eth_spectrum2 = {
             29,
             30,
             31,
-            32
+            32,
+            34
         },
     },
     /* emad_rdq */
@@ -1248,6 +1249,7 @@ struct sx_pci_profile pci_profile_single_eth_spectrum2 = {
         {RDQ_DEFAULT_NUMBER_OF_ENTRIES, RDQ_ETH_LARGE_SIZE, RDQ_ETH_SINGLE_SWID_DEFAULT_WEIGHT, 0}, /*-31-*/
         {RDQ_DEFAULT_NUMBER_OF_ENTRIES, RDQ_ETH_LARGE_SIZE, RDQ_ETH_SINGLE_SWID_DEFAULT_WEIGHT, 0}, /*-32-mirror agent*/
         {RDQ_DEFAULT_NUMBER_OF_ENTRIES, RDQ_ETH_LARGE_SIZE, RDQ_ETH_SINGLE_SWID_DEFAULT_WEIGHT, 0}, /*-33-emad*/
+        {RDQ_DEFAULT_NUMBER_OF_ENTRIES, RDQ_ETH_LARGE_SIZE, RDQ_ETH_SINGLE_SWID_DEFAULT_WEIGHT, 0}, /*-34 - special */
     },
     /* cpu_egress_tclass per SDQ */
     .cpu_egress_tclass = {
@@ -1275,7 +1277,8 @@ struct sx_pci_profile pci_profile_single_eth_spectrum2 = {
         0, /*-21-*/
         0, /*-22-*/
         0 /*-23-55*/
-    }
+    },
+    .dev_id = SX_DEVICE_ID
 };
 
 /* device profile */
@@ -1665,6 +1668,19 @@ static sai_status_t mlnx_resource_mng_stage()
         }
     }
 
+#ifdef PTP
+    struct ku_ptp_mode ku_ptp_mode;
+    memset(&ku_ptp_mode, 0, sizeof(ku_ptp_mode));
+    ku_ptp_mode.ptp_mode = KU_PTP_MODE_EVENTS;
+    ctrl_pack.ctrl_cmd = CTRL_CMD_SET_PTP_MODE;
+    ctrl_pack.cmd_body = &ku_ptp_mode;
+    sxd_ret = sxd_ioctl(sxd_handle, &ctrl_pack);
+    if (SXD_CHECK_FAIL(sxd_ret)) {
+        MLNX_SAI_LOG_ERR("failed to add I2C dev path to DP table, error: %s\n", strerror(errno));
+        return SAI_STATUS_FAILURE;
+    }
+#endif
+
     sxd_ret = sxd_close_device(sxd_handle);
     if (SXD_CHECK_FAIL(sxd_ret)) {
         MLNX_SAI_LOG_ERR("sxd_close_device error: %s\n", strerror(errno));
@@ -1866,8 +1882,8 @@ static sai_status_t mlnx_chassis_mng_stage(bool fastboot_enable, bool transactio
     sdk_init_params.acl_params.acl_search_type = SX_API_ACL_SEARCH_TYPE_PARALLEL;
 
     sdk_init_params.bridge_init_params.sdk_mode                                          = SX_MODE_HYBRID;
-    sdk_init_params.bridge_init_params.sdk_mode_params.mode_1D.max_bridge_num            = 512;
-    sdk_init_params.bridge_init_params.sdk_mode_params.mode_1D.max_virtual_ports_num     = 512;
+    sdk_init_params.bridge_init_params.sdk_mode_params.mode_1D.max_bridge_num            = MAX_BRIDGES_1D;
+    sdk_init_params.bridge_init_params.sdk_mode_params.mode_1D.max_virtual_ports_num     = MAX_VPORTS;
     sdk_init_params.bridge_init_params.sdk_mode_params.mode_1D.multiple_vlan_bridge_mode =
         SX_BRIDGE_MULTIPLE_VLAN_MODE_HOMOGENOUS;
     /* correct the min/max acls according to bridge requirments */
@@ -3519,6 +3535,23 @@ static sai_status_t sai_acl_db_switch_connect_init(int shmid)
     return SAI_STATUS_SUCCESS;
 }
 
+static sai_status_t mlnx_cb_table_init(void)
+{
+    sai_status_t status;
+
+    status = mlnx_port_cb_table_init();
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    status = mlnx_acl_cb_table_init();
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    return status;
+}
+
 static sai_status_t mlnx_sai_rm_initialize(const char *config_file)
 {
     sai_status_t     status;
@@ -3544,6 +3577,11 @@ static sai_status_t mlnx_sai_rm_initialize(const char *config_file)
     }
 
     g_sai_db_ptr->sx_chip_type = chip_type;
+
+    status = mlnx_cb_table_init();
+    if (SAI_ERR(status)) {
+        return status;
+    }
 
     return SAI_STATUS_SUCCESS;
 }
@@ -3894,7 +3932,7 @@ static sai_status_t mlnx_connect_switch(sai_object_id_t switch_id)
             return status;
         }
 
-        status = mlnx_acl_connect();
+        status = mlnx_cb_table_init();
         if (SAI_ERR(status)) {
             return status;
         }
@@ -4384,7 +4422,7 @@ static sai_status_t mlnx_switch_fdb_flood_ctrl_set(_In_ const sai_object_key_t  
         assert(false);
     }
 
-    log_ports = calloc(MAX_BRIDGE_PORTS, sizeof(*log_ports));
+    log_ports = calloc(MAX_BRIDGE_1Q_PORTS, sizeof(*log_ports));
     if (!log_ports) {
         SX_LOG_ERR("Failed to allocate memory\n");
         status = SAI_STATUS_NO_MEMORY;
@@ -4466,7 +4504,7 @@ static sai_status_t mlnx_switch_fdb_flood_mc_ctrl_set(_In_ const sai_object_key_
         goto out;
     }
 
-    log_ports = calloc(MAX_BRIDGE_PORTS, sizeof(*log_ports));
+    log_ports = calloc(MAX_BRIDGE_1Q_PORTS, sizeof(*log_ports));
     if (!log_ports) {
         SX_LOG_ERR("Failed to allocate memory\n");
         status = SAI_STATUS_NO_MEMORY;
@@ -4493,7 +4531,7 @@ static sai_status_t mlnx_switch_fdb_flood_mc_ctrl_set(_In_ const sai_object_key_
             status = sdk_to_sai(sx_status);
             if (SX_ERR(sx_status)) {
                 SX_LOG_ERR("Failed to set unreg fdb flood port list for fid %u - %s.\n", fid,
-                           SX_STATUS_MSG(sx_status));
+                            SX_STATUS_MSG(sx_status));
                 goto out;
             }
         } else {

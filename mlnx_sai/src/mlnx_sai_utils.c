@@ -1463,14 +1463,17 @@ static sai_status_t sai_attr_metadata_conditions_print(_In_ sai_attr_condition_t
         attr_metadata = sai_metadata_get_attr_metadata(object_type, conditions[ii]->attrid);
         assert(NULL != attr_metadata);
 
-        if (!attr_metadata->isenum) {
-            SX_LOG_ERR("Failed to print conditions - %s is not enum\n", attr_metadata->attridname);
+        if (attr_metadata->isenum) {
+            status = sai_attr_meta_enum_to_str(attr_metadata, &conditions[ii]->condition, MAX_VALUE_STR_LEN, value_str);
+            if (SAI_ERR(status)) {
+                return status;
+            }
+        } else if (attr_metadata->attrvaluetype == SAI_ATTR_VALUE_TYPE_BOOL) {
+            snprintf(value_str, MAX_VALUE_STR_LEN, "%s", MLNX_UTILS_BOOL_TO_STR(conditions[ii]->condition.booldata));
+        } else {
+            SX_LOG_ERR("Failed to print conditions for attr %s - unhandled value type %d\n",
+                       attr_metadata->attridname, attr_metadata->attrvaluetype);
             return SAI_STATUS_FAILURE;
-        }
-
-        status = sai_attr_meta_enum_to_str(attr_metadata, &conditions[ii]->condition, MAX_VALUE_STR_LEN, value_str);
-        if (SAI_ERR(status)) {
-            return status;
         }
 
         pos += snprintf(str + pos,
@@ -1769,8 +1772,8 @@ sai_status_t check_attribs_metadata(_In_ uint32_t                            att
 
         status = sai_vendor_attr_index_find(attr_list[ii].id, functionality_vendor_attr, &vendor_attr_index);
         if (SAI_ERR(status)) {
-            SX_LOG_ERR("Invalid attribute %d (vendor data not found)\n", attr_list[ii].id);
-            status = SAI_STATUS_UNKNOWN_ATTRIBUTE_0 + ii;
+            SX_LOG_ERR("Not implemented attribute %s (vendor data not found)\n", meta_data->attridname);
+            status = SAI_STATUS_ATTR_NOT_IMPLEMENTED_0 + ii;
             goto out;
         }
 
@@ -1779,7 +1782,7 @@ sai_status_t check_attribs_metadata(_In_ uint32_t                            att
         if (SAI_COMMON_API_CREATE == oper) {
             if (!(attr_flags & (SAI_ATTR_FLAGS_CREATE_ONLY | SAI_ATTR_FLAGS_CREATE_AND_SET))) {
                 SX_LOG_ERR("Invalid attribute %s for create\n", meta_data->attridname);
-                status = SAI_STATUS_UNKNOWN_ATTRIBUTE_0 + ii;
+                status = SAI_STATUS_INVALID_ATTRIBUTE_0 + ii;
                 goto out;
             }
         }
@@ -1943,7 +1946,7 @@ static sai_status_t get_dispatch_attribs_handler(_In_ uint32_t                  
     const char                *short_attr_name;
     void                      *vendor_getter_arg;
     char                       value_str[MAX_VALUE_STR_LEN];
-    sx_log_severity_t          log_level = SX_LOG_NOTICE;
+    sx_log_severity_t          log_level;
 
     SX_LOG_ENTER();
 
@@ -1992,11 +1995,17 @@ static sai_status_t get_dispatch_attribs_handler(_In_ uint32_t                  
             return SAI_STATUS_ATTR_NOT_IMPLEMENTED_0 + ii;
         }
 
+        log_level = SX_LOG_NOTICE;
+        /* lower log level for all gets in Sonic */
+#ifdef ACS_OS
+        log_level = SX_LOG_INFO;
+#endif
+
         status = functionality_vendor_attr[index].getter(key, &(attr_list[ii].value), ii, &cache,
                                                          vendor_getter_arg);
         if (SAI_ERR(status)) {
             if (MLNX_SAI_STATUS_BUFFER_OVERFLOW_EMPTY_LIST == status) {
-                SX_LOG_NTC("Queried list length %s\n", meta_data->attridname);
+                SX_LOG(log_level, "Queried list length %s\n", meta_data->attridname);
             } else {
                 SX_LOG_ERR("Failed getting attrib %s\n", meta_data->attridname);
             }
@@ -2010,10 +2019,6 @@ static sai_status_t get_dispatch_attribs_handler(_In_ uint32_t                  
             sai_attr_metadata_to_str(meta_data, &attr_list[ii].value, MAX_VALUE_STR_LEN, value_str);
         }
 
-        /* lower log level for all gets in Sonic */
-#ifdef ACS_OS
-        log_level = SX_LOG_INFO;
-#endif
         /* lower log level for ACL counter stats */
         if ((SAI_OBJECT_TYPE_ACL_COUNTER == object_type) &&
             ((SAI_ACL_COUNTER_ATTR_BYTES == attr_id) || (SAI_ACL_COUNTER_ATTR_PACKETS == attr_id))) {

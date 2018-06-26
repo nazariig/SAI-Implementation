@@ -188,6 +188,8 @@ extern const sai_udf_api_t              mlnx_udf_api;
 #define DEFAULT_MULTICAST_TTL_THRESHOLD 1
 #define FIRST_PORT                      (0x10000 | (1 << 8))
 #define PORT_MAC_BITMASK                (~0x3F)
+#define PORT_SPEED_400                  400000
+#define PORT_SPEED_200                  200000
 #define PORT_SPEED_100                  100000
 #define PORT_SPEED_50                   50000
 #define PORT_SPEED_25                   25000
@@ -196,8 +198,8 @@ extern const sai_udf_api_t              mlnx_udf_api;
 #define PORT_SPEED_20                   20000
 #define PORT_SPEED_10                   10000
 #define PORT_SPEED_1                    1000
-#define PORT_SPEED_MAX                  PORT_SPEED_100
-#define NUM_SPEEDS                      8
+#define PORT_SPEED_MAX_SP               PORT_SPEED_100
+#define NUM_SPEEDS                      10
 #define CPU_PORT                        0
 #define ECMP_MAX_PATHS                  64
 #define SX_DEVICE_ID                    1
@@ -672,7 +674,6 @@ typedef struct _acl_index_t {
 
 sai_status_t mlnx_acl_init(void);
 sai_status_t mlnx_acl_deinit(void);
-sai_status_t mlnx_acl_connect(void);
 sai_status_t mlnx_acl_disconnect(void);
 sai_status_t mlnx_acl_bind_point_set(_In_ const sai_object_key_t      *key,
                                      _In_ const sai_attribute_value_t *value,
@@ -748,8 +749,11 @@ extern const mlnx_trap_info_t mlnx_traps_info[];
 
 #define MAX_PORTS        (g_resource_limits.port_ext_num_max)
 #define MAX_PORTS_DB     128
-#define MAX_BRIDGE_PORTS 512
-#define MAX_BRIDGE_RIFS  64
+#define MAX_BRIDGES_1D      1000
+#define MAX_VPORTS          (MAX_BRIDGES_1D * MAX_PORTS_DB)
+#define MAX_BRIDGE_1Q_PORTS (MAX_PORTS_DB * 2) /* Ports and LAGs */
+#define MAX_BRIDGE_RIFS     64
+#define MAX_BRIDGE_PORTS    (MAX_VPORTS + MAX_BRIDGE_1Q_PORTS + MAX_BRIDGE_RIFS)
 #define MAX_LANES        4
 #define MAX_FDS          100
 #define MAX_POLICERS     100
@@ -891,7 +895,7 @@ typedef struct _mlnx_port_config_t {
 } mlnx_port_config_t;
 typedef struct _mlnx_vlan_db_t {
     /* We keep here phy ports + LAGs */
-    uint32_t          ports_map[((MAX_BRIDGE_PORTS * 2) / 32) + 1];
+    uint32_t          ports_map[MLNX_U32BITARRAY_SIZE(MAX_BRIDGE_1Q_PORTS)];
     sx_mstp_inst_id_t stp_id;
     bool              is_created;
 } mlnx_vlan_db_t;
@@ -908,8 +912,9 @@ sai_status_t mlnx_bridge_port_to_vlan_port(sai_object_id_t oid, sx_port_log_id_t
 sai_status_t mlnx_log_port_to_sai_bridge_port(sx_port_log_id_t log_port, sai_object_id_t *oid);
 sai_status_t mlnx_log_port_to_sai_bridge_port_soft(sx_port_log_id_t log_port, sai_object_id_t *oid);
 sai_status_t mlnx_tunnel_idx_to_sai_bridge_port(uint32_t tunnel_idx, sai_object_id_t *oid);
-sai_status_t mlnx_port_is_in_bridge(const mlnx_port_config_t *port);
+sai_status_t mlnx_port_is_in_bridge_1q(const mlnx_port_config_t *port);
 sai_status_t mlnx_bridge_port_by_log(sx_port_log_id_t log, mlnx_bridge_port_t **port);
+sai_status_t mlnx_bridge_1q_port_by_log(sx_port_log_id_t log, mlnx_bridge_port_t **port);
 sai_status_t mlnx_bridge_port_to_oid(mlnx_bridge_port_t *port, sai_object_id_t *oid);
 sai_status_t mlnx_bridge_port_by_idx(uint32_t idx, mlnx_bridge_port_t **port);
 sai_status_t mlnx_bridge_port_by_oid(sai_object_id_t oid, mlnx_bridge_port_t **port);
@@ -1026,14 +1031,22 @@ sai_status_t set_mc_sp_zero(_In_ uint32_t sp);
          (tun = &g_sai_db_ptr->tunnel_db[idx]); idx++) \
         if (tun->is_used && tun->sai_tunnel_type == SAI_TUNNEL_TYPE_VXLAN)
 
-#define mlnx_bridge_port_foreach(port, idx) \
-    for (idx = 0; idx < (MAX_BRIDGE_PORTS) && \
+#define mlnx_bridge_non1q_port_foreach(port, idx, checked)  \
+    for (idx = MAX_BRIDGE_1Q_PORTS, checked = 0;            \
+         (idx < (MAX_BRIDGE_PORTS)) &&                      \
+         (checked < g_sai_db_ptr->non_1q_bports_created) && \
+         (port = &g_sai_db_ptr->bridge_ports_db[idx]);      \
+          idx++, checked++)                                 \
+        if (port->is_present)
+
+#define mlnx_bridge_1q_port_foreach(port, idx) \
+    for (idx = 0; idx < (MAX_BRIDGE_1Q_PORTS) && \
          (port = &g_sai_db_ptr->bridge_ports_db[idx]); idx++) \
         if (port->is_present)
 
 #define mlnx_vlan_ports_foreach(vid, port, idx) \
     for (idx = 0; \
-         (idx < MAX_BRIDGE_PORTS) && \
+         (idx < MAX_BRIDGE_1Q_PORTS) && \
          (port = &g_sai_db_ptr->bridge_ports_db[idx]); idx++) \
         if (port->is_present && mlnx_vlan_port_is_set(vid, port))
 
@@ -1584,6 +1597,7 @@ typedef struct sai_db {
     uint32_t           ports_configured;
     mlnx_port_config_t ports_db[MAX_PORTS_DB * 2];
     mlnx_bridge_port_t bridge_ports_db[MAX_BRIDGE_PORTS];
+    uint32_t           non_1q_bports_created; /* to optimize mlnx_bridge_non1q_port_foreach */
     mlnx_bridge_rif_t  bridge_rifs_db[MAX_BRIDGE_RIFS];
     mlnx_vlan_db_t     vlans_db[SXD_VID_MAX];
     sx_fd_t            fd_db[MAX_FDS];
@@ -1966,6 +1980,9 @@ sai_status_t mlnx_translate_sdk_tunnel_id_to_sai_tunnel_id(_In_ const sx_tunnel_
 
 /* caller needs to guard this function with lock */
 sai_status_t mlnx_get_sai_tunnel_db_idx(_In_ sai_object_id_t sai_tunnel_id, _Out_ uint32_t *tunnel_db_idx);
+
+sai_status_t mlnx_port_cb_table_init(void);
+sai_status_t mlnx_acl_cb_table_init(void);
 
 #define LINE_LENGTH 120
 

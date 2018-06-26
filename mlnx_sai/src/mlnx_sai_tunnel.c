@@ -1210,10 +1210,10 @@ static sai_status_t mlnx_tunnel_dscp_mode_get(_In_ const sai_object_key_t   *key
     }
 
     if (TUNNEL_ENCAP == (long)arg) {
-        if ((SX_COS_DSCP_REWRITE_PRESERVE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+        if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
             (SX_COS_DSCP_ACTION_COPY_E == sx_tunnel_cos_data.dscp_action)) {
             value->s32 = SAI_TUNNEL_DSCP_MODE_UNIFORM_MODEL;
-        } else if ((SX_COS_DSCP_REWRITE_ENABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+        } else if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
                    (SX_COS_DSCP_ACTION_SET_E == sx_tunnel_cos_data.dscp_action)) {
             value->s32 = SAI_TUNNEL_DSCP_MODE_PIPE_MODEL;
         } else {
@@ -1224,10 +1224,10 @@ static sai_status_t mlnx_tunnel_dscp_mode_get(_In_ const sai_object_key_t   *key
             return SAI_STATUS_FAILURE;
         }
     } else if (TUNNEL_DECAP == (long)arg) {
-        if ((SX_COS_DSCP_REWRITE_PRESERVE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+        if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
             (SX_COS_DSCP_ACTION_COPY_E == sx_tunnel_cos_data.dscp_action)) {
             value->s32 = SAI_TUNNEL_DSCP_MODE_UNIFORM_MODEL;
-        } else if ((SX_COS_DSCP_REWRITE_PRESERVE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+        } else if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
                    (SX_COS_DSCP_ACTION_PRESERVE_E == sx_tunnel_cos_data.dscp_action)) {
             value->s32 = SAI_TUNNEL_DSCP_MODE_PIPE_MODEL;
         } else {
@@ -1268,12 +1268,12 @@ static sai_status_t mlnx_tunnel_dscp_val_get(_In_ const sai_object_key_t   *key,
         return sai_status;
     }
 
-    if ((SX_COS_DSCP_REWRITE_PRESERVE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+    if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
         (SX_COS_DSCP_ACTION_COPY_E == sx_tunnel_cos_data.dscp_action)) {
         SX_LOG_ERR("dscp value is not valid for dscp uniform model\n");
         SX_LOG_EXIT();
         return SAI_STATUS_FAILURE;
-    } else if ((SX_COS_DSCP_REWRITE_ENABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
+    } else if ((SX_COS_DSCP_REWRITE_DISABLE_E == sx_tunnel_cos_data.dscp_rewrite) &&
                (SX_COS_DSCP_ACTION_SET_E == sx_tunnel_cos_data.dscp_action)) {
         value->u8 = sx_tunnel_cos_data.dscp_value;
     } else {
@@ -2983,12 +2983,12 @@ static sai_status_t mlnx_sdk_fill_tunnel_cos_data(_In_ uint32_t               at
     if (SAI_STATUS_SUCCESS == sai_status) {
         switch (attr->s32) {
         case SAI_TUNNEL_DSCP_MODE_UNIFORM_MODEL:
-            sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_PRESERVE_E;
+            sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
             sdk_encap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_COPY_E;
             break;
 
         case SAI_TUNNEL_DSCP_MODE_PIPE_MODEL:
-            sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_ENABLE_E;
+            sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
             sdk_encap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_SET_E;
             break;
 
@@ -3000,7 +3000,7 @@ static sai_status_t mlnx_sdk_fill_tunnel_cos_data(_In_ uint32_t               at
         }
         *has_encap_attr = true;
     } else {
-        sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_PRESERVE_E;
+        sdk_encap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
         sdk_encap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_COPY_E;
     }
 
@@ -3055,12 +3055,12 @@ static sai_status_t mlnx_sdk_fill_tunnel_cos_data(_In_ uint32_t               at
     if (SAI_STATUS_SUCCESS == sai_status) {
         switch (attr->s32) {
         case SAI_TUNNEL_DSCP_MODE_UNIFORM_MODEL:
-            sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_PRESERVE_E;
+            sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
             sdk_decap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_COPY_E;
             break;
 
         case SAI_TUNNEL_DSCP_MODE_PIPE_MODEL:
-            sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_PRESERVE_E;
+            sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
             sdk_decap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_PRESERVE_E;
             break;
 
@@ -3069,7 +3069,7 @@ static sai_status_t mlnx_sdk_fill_tunnel_cos_data(_In_ uint32_t               at
             break;
         }
     } else {
-        sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_PRESERVE_E;
+        sdk_decap_cos_data->dscp_rewrite = SX_COS_DSCP_REWRITE_DISABLE_E;
         sdk_decap_cos_data->dscp_action  = SX_COS_DSCP_ACTION_COPY_E;
     }
 

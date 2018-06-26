@@ -312,17 +312,17 @@ static sai_status_t mlnx_port_params_clone(mlnx_port_config_t *to, mlnx_port_con
             goto out;
         }
     }
-    if ((clone & PORT_PARAMS_FLOOD) && mlnx_port_is_in_bridge(from)) {
+    if ((clone & PORT_PARAMS_FLOOD) && mlnx_port_is_in_bridge_1q(from)) {
         mlnx_bridge_port_t *bridge_port;
         uint16_t            fid;
 
-        status = mlnx_bridge_port_by_log(from->logical, &bridge_port);
+        status = mlnx_bridge_1q_port_by_log(from->logical, &bridge_port);
         if (SAI_ERR(status)) {
             SX_LOG_ERR("Failed to lookup bridge port by log port id %x\n", from->logical);
             goto out;
         }
 
-        log_ports = calloc(MAX_BRIDGE_PORTS, sizeof(*log_ports));
+        log_ports = calloc(MAX_BRIDGE_1Q_PORTS, sizeof(*log_ports));
         if (!log_ports) {
             SX_LOG_ERR("Failed to allocate memory\n");
             status = SAI_STATUS_NO_MEMORY;
@@ -483,11 +483,11 @@ static sai_status_t port_reset_vlan_params_from_port(mlnx_port_config_t *port, m
         return sdk_to_sai(sx_status);
     }
 
-    if (!mlnx_port_is_in_bridge(lag)) {
+    if (!mlnx_port_is_in_bridge_1q(lag)) {
         return SAI_STATUS_SUCCESS;
     }
 
-    status = mlnx_bridge_port_by_log(lag->logical, &lag_bport);
+    status = mlnx_bridge_1q_port_by_log(lag->logical, &lag_bport);
     if (SAI_ERR(status)) {
         SX_LOG_ERR("Failed to lookup bridge port by LAG log id %x\n", lag->logical);
         return status;
@@ -724,7 +724,7 @@ static sai_status_t validate_port(mlnx_port_config_t *lag, mlnx_port_config_t *p
     sai_status_t status;
     bool         is_in_use_for_egress_block;
 
-    if (mlnx_port_is_in_bridge(port)) {
+    if (mlnx_port_is_in_bridge_1q(port)) {
         SX_LOG_ERR("Can't add port which is under bridge\n");
         return SAI_STATUS_INVALID_PARAMETER;
     }

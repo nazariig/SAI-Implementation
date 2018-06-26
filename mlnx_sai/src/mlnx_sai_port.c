@@ -269,6 +269,83 @@ static sai_status_t mlnx_port_pool_attr_get(_In_ const sai_object_key_t   *key,
                                             _In_ uint32_t                  attr_index,
                                             _Inout_ vendor_cache_t        *cache,
                                             _In_ void                     *arg);
+static sai_status_t mlnx_port_speed_set_impl(_In_ sx_port_log_id_t sx_port,
+                                             _In_ uint32_t         speed);
+static sai_status_t mlnx_port_speed_get_impl(_In_ sx_port_log_id_t  sx_port,
+                                             _Out_ uint32_t        *speed);
+static sai_status_t mlnx_port_supported_speeds_get_impl(_In_ sx_port_log_id_t   sx_port,
+                                                        _Inout_ sai_u32_list_t *list);
+static sai_status_t mlnx_port_autoneg_set_impl(_In_ sx_port_log_id_t sx_port,
+                                               _In_ bool             value);
+static sai_status_t mlnx_port_autoneg_get_impl(_In_ sx_port_log_id_t  sx_port,
+                                               _In_ bool             *value);
+static sai_status_t mlnx_port_speed_set_sp(_In_ sx_port_log_id_t sx_port,
+                                           _In_ uint32_t         speed);
+static sai_status_t mlnx_port_speed_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                           _Out_ uint32_t        *speed);
+static sai_status_t mlnx_port_speed_set_sp2(_In_ sx_port_log_id_t sx_port,
+                                            _In_ uint32_t         speed);
+static sai_status_t mlnx_port_speed_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                            _Out_ uint32_t        *speed);
+static sai_status_t mlnx_port_supported_speeds_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                                      _Out_ uint32_t        *speeds,
+                                                      _Inout_ uint32_t      *speeds_count);
+static sai_status_t mlnx_port_supported_speeds_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                                       _Out_ uint32_t        *speeds,
+                                                       _Inout_ uint32_t      *speeds_count);
+static sai_status_t mlnx_port_speed_bitmap_apply_sp(_In_ const mlnx_port_config_t *port);
+static sai_status_t mlnx_port_speed_bitmap_apply_sp2(_In_ const mlnx_port_config_t *port);
+static sai_status_t mlnx_port_autoneg_set_sp(_In_ sx_port_log_id_t sx_port,
+                                             _In_ bool             value);
+static sai_status_t mlnx_port_autoneg_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                             _Out_ bool            *value);
+static sai_status_t mlnx_port_autoneg_set_sp2(_In_ sx_port_log_id_t sx_port,
+                                              _In_ bool             value);
+static sai_status_t mlnx_port_autoneg_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                              _Out_ bool            *value);
+
+typedef sai_status_t (*mlnx_port_speed_set_fn)(_In_ sx_port_log_id_t sx_port,
+                                               _In_ uint32_t         speed);
+typedef sai_status_t (*mlnx_port_speed_get_fn)(_In_ sx_port_log_id_t  sx_port,
+                                               _Out_ uint32_t        *speed);
+typedef sai_status_t (*mlnx_port_supported_speeds_get_fn)(_In_ sx_port_log_id_t  sx_port,
+                                                          _Out_ uint32_t        *speeds,
+                                                          _Inout_ uint32_t      *speeds_count);
+typedef sai_status_t (*mlnx_port_speed_bitmap_apply_fn)(_In_ const mlnx_port_config_t *port);
+typedef sai_status_t (*mlnx_port_autoneg_set_fn)(_In_ sx_port_log_id_t sx_port,
+                                                 _In_ bool             value);
+typedef sai_status_t (*mlnx_port_autoneg_get_fn)(_In_ sx_port_log_id_t  sx_port,
+                                                 _Out_ bool            *value);
+
+typedef struct _mlnx_port_cb_t {
+    mlnx_port_speed_set_fn            speed_set;
+    mlnx_port_speed_get_fn            speed_get;
+    mlnx_port_supported_speeds_get_fn supported_speeds_get;
+    mlnx_port_speed_bitmap_apply_fn   speed_bitmap_apply;
+    mlnx_port_autoneg_set_fn          autoneg_set;
+    mlnx_port_autoneg_get_fn          autoneg_get;
+} mlnx_port_cb_table_t;
+
+static mlnx_port_cb_table_t mlnx_port_cb_sp = {
+    mlnx_port_speed_set_sp,
+    mlnx_port_speed_get_sp,
+    mlnx_port_supported_speeds_get_sp,
+    mlnx_port_speed_bitmap_apply_sp,
+    mlnx_port_autoneg_set_sp,
+    mlnx_port_autoneg_get_sp
+};
+
+static mlnx_port_cb_table_t mlnx_port_cb_sp2 = {
+    mlnx_port_speed_set_sp2,
+    mlnx_port_speed_get_sp2,
+    mlnx_port_supported_speeds_get_sp2,
+    mlnx_port_speed_bitmap_apply_sp2,
+    mlnx_port_autoneg_set_sp2,
+    mlnx_port_autoneg_get_sp2
+};
+
+static mlnx_port_cb_table_t* mlnx_port_cb = NULL;
+
 static const sai_vendor_attribute_entry_t port_vendor_attribs[] = {
     { SAI_PORT_ATTR_TYPE,
       { false, false, false, true },
@@ -616,7 +693,7 @@ static sai_status_t mlnx_port_state_set(_In_ const sai_object_key_t      *key,
     /* Try to lookup bridge port by same logical id as phy port, which means that
      * port is bridged with SAI_BRIDGE_PORT_TYPE_PORT via .1Q bridge, if it is bridged then
      * we set a "real" admin state only in case the both ports are set in 'true'. */
-    status = mlnx_bridge_port_by_log(port_id, &bridge_port);
+    status = mlnx_bridge_1q_port_by_log(port_id, &bridge_port);
     if (!SAI_ERR(status)) {
         sdk_state = port->admin_state && bridge_port->admin_state;
     }
@@ -907,80 +984,6 @@ out:
     return status;
 }
 
-static sai_status_t port_speed_set(sx_port_log_id_t port_log_id, uint32_t value)
-{
-    sx_status_t                status;
-    sx_port_speed_capability_t speed;
-
-    memset(&speed, 0, sizeof(speed));
-
-    /* Use values for copper cables, which are the default media type. TODO : support additional media types */
-    switch (value) {
-    case PORT_SPEED_1:
-        speed.mode_1GB_CX_SGMII = true;
-        speed.mode_1GB_KX       = true;
-        break;
-
-    case PORT_SPEED_10:
-        speed.mode_10GB_CX4_XAUI = true;
-        speed.mode_10GB_KR       = true;
-        speed.mode_10GB_CR       = true;
-        speed.mode_10GB_SR       = true;
-        speed.mode_10GB_ER_LR    = true;
-        speed.mode_10GB_KX4      = true;
-        break;
-
-    case PORT_SPEED_20:
-        speed.mode_20GB_KR2 = true;
-        break;
-
-    case PORT_SPEED_40:
-        speed.mode_40GB_CR4     = true;
-        speed.mode_40GB_SR4     = true;
-        speed.mode_40GB_LR4_ER4 = true;
-        speed.mode_40GB_KR4     = true;
-        break;
-
-    case PORT_SPEED_56:
-        speed.mode_56GB_KR4 = true;
-        speed.mode_56GB_KX4 = true;
-        break;
-
-    case PORT_SPEED_100:
-        speed.mode_100GB_CR4     = true;
-        speed.mode_100GB_SR4     = true;
-        speed.mode_100GB_LR4_ER4 = true;
-        speed.mode_100GB_KR4     = true;
-        break;
-
-    case PORT_SPEED_50:
-        speed.mode_50GB_CR2 = true;
-        speed.mode_50GB_KR2 = true;
-        speed.mode_50GB_SR2 = true;
-        break;
-
-    case PORT_SPEED_25:
-        speed.mode_25GB_CR = true;
-        speed.mode_25GB_SR = true;
-        speed.mode_25GB_KR = true;
-        break;
-
-    default:
-        SX_LOG_ERR("Invalid speed %u\n", value);
-        return SAI_STATUS_INVALID_ATTR_VALUE_0;
-    }
-
-    speed.force = true;
-
-    status = sx_api_port_speed_admin_set(gh_sdk, port_log_id, &speed);
-    if (SX_ERR(status)) {
-        SX_LOG_ERR("Failed to set port speed - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
-
-    return SAI_STATUS_SUCCESS;
-}
-
 /* Speed in Mbps [uint32_t] */
 static sai_status_t mlnx_port_speed_set(_In_ const sai_object_key_t      *key,
                                         _In_ const sai_attribute_value_t *value,
@@ -997,7 +1000,7 @@ static sai_status_t mlnx_port_speed_set(_In_ const sai_object_key_t      *key,
         return status;
     }
 
-    status = port_speed_set(port_id, value->u32);
+    status = mlnx_port_speed_set_impl(port_id, value->u32);
 
     SX_LOG_EXIT();
     return status;
@@ -1117,10 +1120,8 @@ static sai_status_t mlnx_port_auto_negotiation_set(_In_ const sai_object_key_t  
                                                    _In_ const sai_attribute_value_t *value,
                                                    void                             *arg)
 {
-    sai_status_t               status;
-    sx_port_log_id_t           port_id;
-    sx_port_speed_capability_t speed;
-    sx_port_oper_speed_t       speed_oper;
+    sai_status_t     status;
+    sx_port_log_id_t port_id;
 
     SX_LOG_ENTER();
 
@@ -1129,23 +1130,10 @@ static sai_status_t mlnx_port_auto_negotiation_set(_In_ const sai_object_key_t  
         return status;
     }
 
-    memset(&speed, 0, sizeof(speed));
-
-    if (SX_STATUS_SUCCESS != (status = sx_api_port_speed_get(gh_sdk, port_id, &speed, &speed_oper))) {
-        SX_LOG_ERR("Failed to get port speed - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
-
-    speed.mode_auto = value->booldata;
-    speed.force     = !value->booldata;
-
-    if (SX_STATUS_SUCCESS != (status = sx_api_port_speed_admin_set(gh_sdk, port_id, &speed))) {
-        SX_LOG_ERR("Failed to set port speed - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
+    status = mlnx_port_autoneg_set_impl(port_id, value->booldata);
 
     SX_LOG_EXIT();
-    return SAI_STATUS_SUCCESS;
+    return status;
 }
 
 /* Port type [sai_port_type_t] */
@@ -1407,11 +1395,8 @@ static sai_status_t mlnx_port_supported_speed_get(_In_ const sai_object_key_t   
                                                   _Inout_ vendor_cache_t        *cache,
                                                   void                          *arg)
 {
-    uint32_t             speeds[NUM_SPEEDS];
-    uint32_t             speeds_num = 0;
-    sai_status_t         status;
-    sx_port_log_id_t     port_id;
-    sx_port_capability_t speed_cap;
+    sai_status_t     status;
+    sx_port_log_id_t port_id;
 
     SX_LOG_ENTER();
 
@@ -1420,46 +1405,7 @@ static sai_status_t mlnx_port_supported_speed_get(_In_ const sai_object_key_t   
         return status;
     }
 
-    if (SX_STATUS_SUCCESS != (status = sx_api_port_capability_get(gh_sdk, port_id, &speed_cap))) {
-        SX_LOG_ERR("Failed to get port speed capability - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
-
-    if (speed_cap.speed_capability.mode_100GB_CR4 || speed_cap.speed_capability.mode_100GB_SR4 ||
-        speed_cap.speed_capability.mode_100GB_KR4 ||
-        speed_cap.speed_capability.mode_100GB_LR4_ER4) {
-        speeds[speeds_num++] = PORT_SPEED_100;
-    }
-    if (speed_cap.speed_capability.mode_25GB_CR || speed_cap.speed_capability.mode_25GB_KR ||
-        speed_cap.speed_capability.mode_25GB_SR) {
-        speeds[speeds_num++] = PORT_SPEED_25;
-    }
-    if (speed_cap.speed_capability.mode_50GB_CR2 || speed_cap.speed_capability.mode_50GB_KR2 ||
-        speed_cap.speed_capability.mode_50GB_SR2) {
-        speeds[speeds_num++] = PORT_SPEED_50;
-    }
-    if (speed_cap.speed_capability.mode_56GB_KX4 || speed_cap.speed_capability.mode_56GB_KR4) {
-        speeds[speeds_num++] = PORT_SPEED_56;
-    }
-    if (speed_cap.speed_capability.mode_40GB_KR4 || speed_cap.speed_capability.mode_40GB_CR4 ||
-        speed_cap.speed_capability.mode_40GB_SR4 ||
-        speed_cap.speed_capability.mode_40GB_LR4_ER4) {
-        speeds[speeds_num++] = PORT_SPEED_40;
-    }
-    if (speed_cap.speed_capability.mode_20GB_KR2) {
-        speeds[speeds_num++] = PORT_SPEED_20;
-    }
-    if (speed_cap.speed_capability.mode_10GB_KR || speed_cap.speed_capability.mode_10GB_KX4 ||
-        speed_cap.speed_capability.mode_10GB_CX4_XAUI ||
-        speed_cap.speed_capability.mode_10GB_CR || speed_cap.speed_capability.mode_10GB_SR ||
-        speed_cap.speed_capability.mode_10GB_ER_LR) {
-        speeds[speeds_num++] = PORT_SPEED_10;
-    }
-    if (speed_cap.speed_capability.mode_1GB_CX_SGMII || speed_cap.speed_capability.mode_1GB_KX) {
-        speeds[speeds_num++] = PORT_SPEED_1;
-    }
-
-    status = mlnx_fill_u32list(speeds, speeds_num, &value->u32list);
+    status = mlnx_port_supported_speeds_get_impl(port_id, &value->u32list);
 
     SX_LOG_EXIT();
     return status;
@@ -1575,10 +1521,8 @@ static sai_status_t mlnx_port_speed_get(_In_ const sai_object_key_t   *key,
                                         _Inout_ vendor_cache_t        *cache,
                                         void                          *arg)
 {
-    sai_status_t               status;
-    sx_port_log_id_t           port_id;
-    sx_port_speed_capability_t speed_cap;
-    sx_port_oper_speed_t       speed_oper;
+    sai_status_t     status;
+    sx_port_log_id_t port_id;
 
     SX_LOG_ENTER();
 
@@ -1587,39 +1531,10 @@ static sai_status_t mlnx_port_speed_get(_In_ const sai_object_key_t   *key,
         return status;
     }
 
-    if (SX_STATUS_SUCCESS != (status = sx_api_port_speed_get(gh_sdk, port_id, &speed_cap, &speed_oper))) {
-        SX_LOG_ERR("Failed to get port speed - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
-
-    if (speed_cap.mode_100GB_CR4 || speed_cap.mode_100GB_SR4 || speed_cap.mode_100GB_KR4 ||
-        speed_cap.mode_100GB_LR4_ER4) {
-        value->u32 = PORT_SPEED_100;
-    } else if (speed_cap.mode_56GB_KX4 || speed_cap.mode_56GB_KR4) {
-        value->u32 = PORT_SPEED_56;
-    } else if (speed_cap.mode_50GB_CR2 || speed_cap.mode_50GB_KR2 || speed_cap.mode_50GB_SR2) {
-        value->u32 = PORT_SPEED_50;
-    } else if (speed_cap.mode_40GB_KR4 || speed_cap.mode_40GB_CR4 || speed_cap.mode_40GB_SR4 ||
-               speed_cap.mode_40GB_LR4_ER4) {
-        value->u32 = PORT_SPEED_40;
-    } else if (speed_cap.mode_25GB_CR || speed_cap.mode_25GB_KR || speed_cap.mode_25GB_SR) {
-        value->u32 = PORT_SPEED_25;
-    } else if (speed_cap.mode_20GB_KR2) {
-        value->u32 = PORT_SPEED_20;
-    } else if (speed_cap.mode_10GB_KR || speed_cap.mode_10GB_KX4 || speed_cap.mode_10GB_CX4_XAUI ||
-               speed_cap.mode_10GB_CR || speed_cap.mode_10GB_SR || speed_cap.mode_10GB_ER_LR) {
-        value->u32 = PORT_SPEED_10;
-    } else if (speed_cap.mode_1GB_CX_SGMII || speed_cap.mode_1GB_KX) {
-        value->u32 = PORT_SPEED_1;
-    } else if (speed_cap.mode_auto) {
-        value->u32 = PORT_SPEED_MAX;
-    } else {
-        SX_LOG_ERR("Unexpected port speed\n");
-        return SAI_STATUS_FAILURE;
-    }
+    status = mlnx_port_speed_get_impl(port_id, &value->u32);
 
     SX_LOG_EXIT();
-    return SAI_STATUS_SUCCESS;
+    return status;
 }
 
 /* Full Duplex setting [bool] */
@@ -1644,10 +1559,8 @@ static sai_status_t mlnx_port_auto_negotiation_get(_In_ const sai_object_key_t  
                                                    _Inout_ vendor_cache_t        *cache,
                                                    void                          *arg)
 {
-    sai_status_t               status;
-    sx_port_log_id_t           port_id;
-    sx_port_speed_capability_t speed_cap;
-    sx_port_oper_speed_t       speed_oper;
+    sai_status_t     status;
+    sx_port_log_id_t port_id;
 
     SX_LOG_ENTER();
 
@@ -1656,15 +1569,10 @@ static sai_status_t mlnx_port_auto_negotiation_get(_In_ const sai_object_key_t  
         return status;
     }
 
-    if (SX_STATUS_SUCCESS != (status = sx_api_port_speed_get(gh_sdk, port_id, &speed_cap, &speed_oper))) {
-        SX_LOG_ERR("Failed to get port speed - %s.\n", SX_STATUS_MSG(status));
-        return sdk_to_sai(status);
-    }
-
-    value->booldata = speed_cap.mode_auto;
+    status = mlnx_port_autoneg_get_impl(port_id, &value->booldata);
 
     SX_LOG_EXIT();
-    return SAI_STATUS_SUCCESS;
+    return status;
 }
 
 /* Port/LAG VLAN ID [sai_vlan_id_t]
@@ -3210,7 +3118,7 @@ static sai_status_t mlnx_port_qos_map_assign_tc_to_pg(sx_port_log_id_t port_id, 
     /* Reapply PFC->PG, PFC->Queue maps, since they are dependent on TC->PG value, and in case they were applied prior 
        the values would be incorrect. */
     if (g_sai_db_ptr->qos_maps_db[MLNX_QOS_MAP_PFC_PG_INDEX].is_set) {
-        SX_LOG_NTC("Reapplying PFC->PG\n");
+        SX_LOG_INF("Reapplying PFC->PG\n");
         sai_status = mlnx_port_qos_map_assign_pfc_to_pg(port_id, &g_sai_db_ptr->qos_maps_db[MLNX_QOS_MAP_PFC_PG_INDEX]);
         if (SAI_ERR(sai_status)) {
             SX_LOG_ERR("Failed to reapply PFC to PG\n");
@@ -3219,7 +3127,7 @@ static sai_status_t mlnx_port_qos_map_assign_tc_to_pg(sx_port_log_id_t port_id, 
     }
 
     if (g_sai_db_ptr->qos_maps_db[MLNX_QOS_MAP_PFC_QUEUE_INDEX].is_set) {
-        SX_LOG_NTC("Reapplying PFC->Queue\n");
+        SX_LOG_INF("Reapplying PFC->Queue\n");
         sai_status = mlnx_port_qos_map_assign_pfc_to_queue(port_id, &g_sai_db_ptr->qos_maps_db[MLNX_QOS_MAP_PFC_QUEUE_INDEX]);
         if (SAI_ERR(sai_status)) {
             SX_LOG_ERR("Failed to reapply PFC to QUEUE\n");
@@ -5504,6 +5412,146 @@ mlnx_port_config_t * mlnx_port_by_local_id(uint8_t local_port)
     return NULL;
 }
 
+
+static sai_status_t mlnx_port_speed_to_rate(_In_ uint32_t                 speed,
+                                            _Out_ sx_port_rate_bitmask_t *sx_rate_bitmask)
+{
+    assert(sx_rate_bitmask);
+
+    memset(sx_rate_bitmask, 0, sizeof(*sx_rate_bitmask));
+
+    switch (speed) {
+    case PORT_SPEED_1:
+        sx_rate_bitmask->rate_1G = true;
+        break;
+
+    case PORT_SPEED_10:
+        sx_rate_bitmask->rate_10G = true;
+        break;
+
+    case PORT_SPEED_25:
+        sx_rate_bitmask->rate_25G = true;
+        break;
+
+    case PORT_SPEED_40:
+        sx_rate_bitmask->rate_40G = true;
+        break;
+
+    case PORT_SPEED_50:
+        sx_rate_bitmask->rate_50G = true;
+        break;
+
+    case PORT_SPEED_100:
+        sx_rate_bitmask->rate_100G = true;
+        break;
+
+    case PORT_SPEED_200:
+        sx_rate_bitmask->rate_200G = true;
+        break;
+
+    case PORT_SPEED_400:
+        sx_rate_bitmask->rate_400G = true;
+        break;
+
+    default:
+        SX_LOG_ERR("Invalid speed %u\n", speed);
+        return SAI_STATUS_INVALID_ATTR_VALUE_0;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_rate_bitmask_to_speeds(_In_ const sx_port_rate_bitmask_t *sx_rate_bitmask,
+                                                     _Out_ uint32_t                    *speeds,
+                                                     _Inout_ uint32_t                  *speeds_count)
+{
+    uint32_t speeds_count_tmp = 0;
+
+    assert(sx_rate_bitmask);
+    assert(speeds);
+    assert(speeds_count && (*speeds_count >= NUM_SPEEDS));
+
+    if (sx_rate_bitmask->rate_400G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_400;
+    }
+
+    if (sx_rate_bitmask->rate_200G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_200;
+    }
+
+    if (sx_rate_bitmask->rate_100G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_100;
+    }
+
+    if (sx_rate_bitmask->rate_50G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_50;
+    }
+
+    if (sx_rate_bitmask->rate_40G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_40;
+    }
+
+    if (sx_rate_bitmask->rate_25G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_25;
+    }
+
+    if (sx_rate_bitmask->rate_10G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_10;
+    }
+
+    if (sx_rate_bitmask->rate_1G) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_1;
+    }
+
+    *speeds_count = speeds_count_tmp;
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_bitmap_to_rate_bitmask(_In_ uint32_t                 speed_bitmap,
+                                                           _Out_ sx_port_rate_bitmask_t *sx_rate_bitmask)
+{
+    assert(sx_rate_bitmask);
+
+    memset(sx_rate_bitmask, 0, sizeof(*sx_rate_bitmask));
+
+    if (speed_bitmap & 1 << 1) {
+        sx_rate_bitmask->rate_1G = true;
+    }
+
+    if (speed_bitmap & 1 << 4) {
+        sx_rate_bitmask->rate_10G = true;
+    }
+
+    if (speed_bitmap & 1 << 5) {
+        sx_rate_bitmask->rate_40G = true;
+    }
+
+    if (speed_bitmap & 1 << 6) {
+        sx_rate_bitmask->rate_25G = true;
+    }
+
+    if ((speed_bitmap & 1 << 7) ||
+        (speed_bitmap & 1 << 8)) {
+        sx_rate_bitmask->rate_50G = true;
+    }
+
+    if ((speed_bitmap & 1 << 9) ||
+        (speed_bitmap & 1 << 10)) {
+        sx_rate_bitmask->rate_100G = true;
+    }
+
+    if (speed_bitmap & 1 << 12) {
+        sx_rate_bitmask->rate_200G = true;
+    }
+
+    if (speed_bitmap & 1 << 15) {
+        sx_rate_bitmask->rate_400G = true;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
 static sai_status_t mlnx_port_speed_convert_bitmap_to_capability(const sx_port_speed_t       speed_bitmap,
                                                                  sx_port_speed_capability_t* speed_capability)
 {
@@ -5597,9 +5645,275 @@ static sai_status_t mlnx_port_speed_convert_bitmap_to_capability(const sx_port_s
 
 sai_status_t mlnx_port_speed_bitmap_apply(_In_ const mlnx_port_config_t *port)
 {
+    assert(mlnx_port_cb);
+
+    return mlnx_port_cb->speed_bitmap_apply(port);
+}
+
+static sai_status_t mlnx_port_speed_set_sp(_In_ sx_port_log_id_t sx_port,
+                                           _In_ uint32_t         speed)
+{
+    sx_status_t                sx_status;
+    sx_port_speed_capability_t sx_speed;
+
+    memset(&sx_speed, 0, sizeof(sx_speed));
+
+    /* Use values for copper cables, which are the default media type. TODO : support additional media types */
+    switch (speed) {
+    case PORT_SPEED_1:
+        sx_speed.mode_1GB_CX_SGMII = true;
+        sx_speed.mode_1GB_KX       = true;
+        break;
+
+    case PORT_SPEED_10:
+        sx_speed.mode_10GB_CX4_XAUI = true;
+        sx_speed.mode_10GB_KR       = true;
+        sx_speed.mode_10GB_CR       = true;
+        sx_speed.mode_10GB_SR       = true;
+        sx_speed.mode_10GB_ER_LR    = true;
+        sx_speed.mode_10GB_KX4      = true;
+        break;
+
+    case PORT_SPEED_20:
+        sx_speed.mode_20GB_KR2 = true;
+        break;
+
+    case PORT_SPEED_40:
+        sx_speed.mode_40GB_CR4     = true;
+        sx_speed.mode_40GB_SR4     = true;
+        sx_speed.mode_40GB_LR4_ER4 = true;
+        sx_speed.mode_40GB_KR4     = true;
+        break;
+
+    case PORT_SPEED_56:
+        sx_speed.mode_56GB_KR4 = true;
+        sx_speed.mode_56GB_KX4 = true;
+        break;
+
+    case PORT_SPEED_100:
+        sx_speed.mode_100GB_CR4     = true;
+        sx_speed.mode_100GB_SR4     = true;
+        sx_speed.mode_100GB_LR4_ER4 = true;
+        sx_speed.mode_100GB_KR4     = true;
+        break;
+
+    case PORT_SPEED_50:
+        sx_speed.mode_50GB_CR2 = true;
+        sx_speed.mode_50GB_KR2 = true;
+        sx_speed.mode_50GB_SR2 = true;
+        break;
+
+    case PORT_SPEED_25:
+        sx_speed.mode_25GB_CR = true;
+        sx_speed.mode_25GB_SR = true;
+        sx_speed.mode_25GB_KR = true;
+        break;
+
+    default:
+        SX_LOG_ERR("Invalid speed %u\n", speed);
+        return SAI_STATUS_INVALID_ATTR_VALUE_0;
+    }
+
+    sx_speed.force = true;
+
+    sx_status = sx_api_port_speed_admin_set(gh_sdk, sx_port, &sx_speed);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to set port speed - %s.\n", SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                           _Out_ uint32_t        *speed)
+{
+    sx_status_t                sx_status;
+    sx_port_speed_capability_t speed_cap;
+    sx_port_oper_speed_t       speed_oper;
+
+    memset(&speed_cap, 0, sizeof(speed_cap));
+    memset(&speed_oper, 0, sizeof(speed_oper));
+
+    sx_status = sx_api_port_speed_get(gh_sdk, sx_port, &speed_cap, &speed_oper);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port %x speed - %s.\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    if (speed_cap.mode_100GB_CR4 || speed_cap.mode_100GB_SR4 || speed_cap.mode_100GB_KR4 ||
+        speed_cap.mode_100GB_LR4_ER4) {
+        *speed = PORT_SPEED_100;
+    } else if (speed_cap.mode_56GB_KX4 || speed_cap.mode_56GB_KR4) {
+        *speed = PORT_SPEED_56;
+    } else if (speed_cap.mode_50GB_CR2 || speed_cap.mode_50GB_KR2 || speed_cap.mode_50GB_SR2) {
+        *speed = PORT_SPEED_50;
+    } else if (speed_cap.mode_40GB_KR4 || speed_cap.mode_40GB_CR4 || speed_cap.mode_40GB_SR4 ||
+               speed_cap.mode_40GB_LR4_ER4) {
+        *speed = PORT_SPEED_40;
+    } else if (speed_cap.mode_25GB_CR || speed_cap.mode_25GB_KR || speed_cap.mode_25GB_SR) {
+        *speed = PORT_SPEED_25;
+    } else if (speed_cap.mode_20GB_KR2) {
+        *speed = PORT_SPEED_20;
+    } else if (speed_cap.mode_10GB_KR || speed_cap.mode_10GB_KX4 || speed_cap.mode_10GB_CX4_XAUI ||
+               speed_cap.mode_10GB_CR || speed_cap.mode_10GB_SR || speed_cap.mode_10GB_ER_LR) {
+        *speed = PORT_SPEED_10;
+    } else if (speed_cap.mode_1GB_CX_SGMII || speed_cap.mode_1GB_KX) {
+        *speed = PORT_SPEED_1;
+    } else if (speed_cap.mode_auto) {
+        *speed = PORT_SPEED_MAX_SP;
+    } else {
+        SX_LOG_ERR("Unexpected port speed\n");
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_set_sp2(_In_ sx_port_log_id_t sx_port,
+                                            _In_ uint32_t         speed)
+{
+    sai_status_t           status;
+    sx_status_t            sx_status;
+    sx_port_rate_bitmask_t sx_rate_bitmask;
+
+    status = mlnx_port_speed_to_rate(speed, &sx_rate_bitmask);
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    sx_status = sx_api_port_rate_set(gh_sdk, sx_port, &sx_rate_bitmask);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to set port %x rate - %s\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                            _Out_ uint32_t        *speed)
+{
+    sai_status_t                      status;
+    sx_status_t                       sx_status;
+    sx_port_rate_bitmask_t            sx_admin_rate, sx_capab_rate;
+    sx_port_phy_module_type_bitmask_t sx_capab_type;
+    uint32_t                          speeds[NUM_SPEEDS] = {0}, speeds_count = NUM_SPEEDS;
+
+    assert(speed);
+
+    memset(&sx_admin_rate, 0, sizeof(sx_admin_rate));
+    memset(&sx_capab_rate, 0, sizeof(sx_capab_rate));
+    memset(&sx_capab_type, 0, sizeof(sx_capab_type));
+
+    sx_status = sx_api_port_rate_capability_get(gh_sdk, sx_port, &sx_admin_rate, &sx_capab_rate, &sx_capab_type);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port %x rate - %s\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    status = mlnx_port_rate_bitmask_to_speeds(&sx_admin_rate, speeds, &speeds_count);
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    if (speeds_count == 0) {
+        SX_LOG_ERR("Zero active speeds in sx_admin_rate for port %x\n", sx_port);
+        return SAI_STATUS_FAILURE;
+    }
+
+    *speed = speeds[0];
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_supported_speeds_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                                      _Out_ uint32_t        *speeds,
+                                                      _Inout_ uint32_t      *speeds_count)
+{
+    sx_status_t          sx_status;
+    sx_port_capability_t speed_cap;
+    uint32_t             speeds_count_tmp = 0;
+
+    assert(speeds);
+    assert(speeds_count && (*speeds_count >= NUM_SPEEDS));
+
+    sx_status = sx_api_port_capability_get(gh_sdk, sx_port, &speed_cap);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port speed capability - %s.\n", SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    if (speed_cap.speed_capability.mode_100GB_CR4 || speed_cap.speed_capability.mode_100GB_SR4 ||
+        speed_cap.speed_capability.mode_100GB_KR4 ||
+        speed_cap.speed_capability.mode_100GB_LR4_ER4) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_100;
+    }
+    if (speed_cap.speed_capability.mode_25GB_CR || speed_cap.speed_capability.mode_25GB_KR ||
+        speed_cap.speed_capability.mode_25GB_SR) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_25;
+    }
+    if (speed_cap.speed_capability.mode_50GB_CR2 || speed_cap.speed_capability.mode_50GB_KR2 ||
+        speed_cap.speed_capability.mode_50GB_SR2) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_50;
+    }
+    if (speed_cap.speed_capability.mode_56GB_KX4 || speed_cap.speed_capability.mode_56GB_KR4) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_56;
+    }
+    if (speed_cap.speed_capability.mode_40GB_KR4 || speed_cap.speed_capability.mode_40GB_CR4 ||
+        speed_cap.speed_capability.mode_40GB_SR4 ||
+        speed_cap.speed_capability.mode_40GB_LR4_ER4) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_40;
+    }
+    if (speed_cap.speed_capability.mode_20GB_KR2) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_20;
+    }
+    if (speed_cap.speed_capability.mode_10GB_KR || speed_cap.speed_capability.mode_10GB_KX4 ||
+        speed_cap.speed_capability.mode_10GB_CX4_XAUI ||
+        speed_cap.speed_capability.mode_10GB_CR || speed_cap.speed_capability.mode_10GB_SR ||
+        speed_cap.speed_capability.mode_10GB_ER_LR) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_10;
+    }
+    if (speed_cap.speed_capability.mode_1GB_CX_SGMII || speed_cap.speed_capability.mode_1GB_KX) {
+        speeds[speeds_count_tmp++] = PORT_SPEED_1;
+    }
+
+    *speeds_count = speeds_count_tmp;
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_supported_speeds_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                                       _Out_ uint32_t        *speeds,
+                                                       _Inout_ uint32_t      *speeds_count)
+{
+    sx_status_t                       sx_status;
+    sx_port_rate_bitmask_t            sx_admin_rate, sx_capab_rate;
+    sx_port_phy_module_type_bitmask_t sx_capab_type;
+
+    assert(speeds);
+    assert(speeds_count);
+
+    memset(&sx_admin_rate, 0, sizeof(sx_admin_rate));
+    memset(&sx_capab_rate, 0, sizeof(sx_capab_rate));
+    memset(&sx_capab_type, 0, sizeof(sx_capab_type));
+
+    sx_status = sx_api_port_rate_capability_get(gh_sdk, sx_port, &sx_admin_rate, &sx_capab_rate, &sx_capab_type);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port %x rate - %s\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    return mlnx_port_rate_bitmask_to_speeds(&sx_capab_rate, speeds, speeds_count);
+}
+
+static sai_status_t mlnx_port_speed_bitmap_apply_sp(_In_ const mlnx_port_config_t *port)
+{
     sai_status_t               status;
     sx_status_t                sx_status;
     sx_port_speed_capability_t speed;
+
+    assert(port);
 
     memset(&speed, 0, sizeof(speed));
 
@@ -5616,6 +5930,165 @@ sai_status_t mlnx_port_speed_bitmap_apply(_In_ const mlnx_port_config_t *port)
     }
 
     return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_bitmap_apply_sp2(_In_ const mlnx_port_config_t *port)
+{
+    sai_status_t           status;
+    sx_status_t            sx_status;
+    sx_port_rate_bitmask_t sx_rate_bitmask;
+
+    assert(port);
+
+    status = mlnx_port_speed_bitmap_to_rate_bitmask(port->speed_bitmap, &sx_rate_bitmask);
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    sx_status = sx_api_port_rate_set(gh_sdk, port->logical, &sx_rate_bitmask);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to set port %x rate - %s\n", port->logical, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_autoneg_set_sp(_In_ sx_port_log_id_t sx_port,
+                                             _In_ bool             value)
+{
+    sx_status_t                sx_status;
+    sx_port_speed_capability_t speed;
+    sx_port_oper_speed_t       speed_oper = SX_PORT_SPEED_NA;
+
+    SX_LOG_ENTER();
+
+    memset(&speed, 0, sizeof(speed));
+
+    sx_status = sx_api_port_speed_get(gh_sdk, sx_port, &speed, &speed_oper);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port %x speed - %s.\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    speed.mode_auto = value;
+    speed.force     = !value;
+
+    sx_status = sx_api_port_speed_admin_set(gh_sdk, sx_port, &speed);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to set port %x speed - %s.\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_autoneg_get_sp(_In_ sx_port_log_id_t  sx_port,
+                                             _Out_ bool            *value)
+{
+    sx_status_t                sx_status;
+    sx_port_speed_capability_t speed_cap;
+    sx_port_oper_speed_t       speed_oper;
+
+    memset(&speed_cap, 0, sizeof(speed_cap));
+    memset(&speed_oper, 0, sizeof(speed_oper));
+
+    sx_status = sx_api_port_speed_get(gh_sdk, sx_port, &speed_cap, &speed_oper);
+    if (SX_ERR(sx_status)) {
+        SX_LOG_ERR("Failed to get port %x speed - %s.\n", sx_port, SX_STATUS_MSG(sx_status));
+        return sdk_to_sai(sx_status);
+    }
+
+    *value = speed_cap.mode_auto;
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_autoneg_set_sp2(_In_ sx_port_log_id_t sx_port,
+                                              _In_ bool             value)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
+static sai_status_t mlnx_port_autoneg_get_sp2(_In_ sx_port_log_id_t  sx_port,
+                                              _Out_ bool            *value)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
+sai_status_t mlnx_port_cb_table_init(void)
+{
+    sx_chip_types_t chip_type;
+
+    assert(mlnx_port_cb == NULL);
+
+    chip_type = g_sai_db_ptr->sx_chip_type;
+
+    switch (chip_type) {
+    case SX_CHIP_TYPE_SPECTRUM:
+    case SX_CHIP_TYPE_SPECTRUM_A1:
+        mlnx_port_cb = &mlnx_port_cb_sp;
+        break;
+
+    case SX_CHIP_TYPE_SPECTRUM2:
+        mlnx_port_cb = &mlnx_port_cb_sp2;
+        break;
+
+    default:
+        SX_LOG_ERR("g_sai_db_ptr->sxd_chip_type = %s\n", SX_CHIP_TYPE_STR(chip_type));
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t mlnx_port_speed_set_impl(_In_ sx_port_log_id_t sx_port,
+                                             _In_ uint32_t         speed)
+{
+    assert(mlnx_port_cb);
+
+    return mlnx_port_cb->speed_set(sx_port, speed);
+}
+
+static sai_status_t mlnx_port_speed_get_impl(_In_ sx_port_log_id_t  sx_port,
+                                             _Out_ uint32_t        *speed)
+{
+    assert(mlnx_port_cb);
+
+    return mlnx_port_cb->speed_get(sx_port, speed);
+}
+
+static sai_status_t mlnx_port_supported_speeds_get_impl(_In_ sx_port_log_id_t   sx_port,
+                                                        _Inout_ sai_u32_list_t *list)
+{
+    sai_status_t status;
+    uint32_t     speeds[NUM_SPEEDS] = {0}, speeds_count = NUM_SPEEDS;
+
+    assert(list);
+    assert(mlnx_port_cb);
+
+    status = mlnx_port_cb->supported_speeds_get(sx_port, speeds, &speeds_count);
+    if (SAI_ERR(status)) {
+        return status;
+    }
+
+    return mlnx_fill_u32list(speeds, speeds_count, list);
+}
+
+static sai_status_t mlnx_port_autoneg_set_impl(_In_ sx_port_log_id_t sx_port,
+                                               _In_ bool             value)
+{
+    assert(mlnx_port_cb);
+
+    return mlnx_port_cb->autoneg_set(sx_port, value);
+}
+
+static sai_status_t mlnx_port_autoneg_get_impl(_In_ sx_port_log_id_t  sx_port,
+                                               _In_ bool             *value)
+{
+    assert(mlnx_port_cb);
+
+    return mlnx_port_cb->autoneg_get(sx_port, value);
 }
 
 sai_status_t mlnx_port_config_init(mlnx_port_config_t *port)
@@ -5919,7 +6392,7 @@ sai_status_t mlnx_port_in_use_check(const mlnx_port_config_t *port)
     sai_status_t                    status                     = SAI_STATUS_SUCCESS;
     bool                            is_in_use_for_egress_block = true;
 
-    if (mlnx_port_is_in_bridge(port)) {
+    if (mlnx_port_is_in_bridge_1q(port)) {
         SX_LOG_ERR("Failed remove port oid %" PRIx64 " - is under bridge\n", port->saiport);
         return SAI_STATUS_OBJECT_IN_USE;
     }
@@ -6179,7 +6652,7 @@ static sai_status_t mlnx_create_port(_Out_ sai_object_id_t     * port_id,
     }
 
     SX_LOG_NTC("Set speed %u on new port oid %" PRIx64 "\n", port_speed->u32, new_port->saiport);
-    status = port_speed_set(new_port->logical, port_speed->u32);
+    status = mlnx_port_speed_set_impl(new_port->logical, port_speed->u32);
     if (SAI_ERR(status)) {
         goto out_unlock;
     }
